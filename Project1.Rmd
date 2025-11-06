@@ -1,0 +1,120 @@
+---
+title: "Practical Machine Learning: Weight Lifting Exercise Prediction"
+author: "Rujula Raut"
+date: "November 6, 2025"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(caret)
+library(randomForest)
+library(gbm)
+library(dplyr)
+```
+
+Background
+
+This project uses accelerometer data to classify the manner in which subjects performed barbell lifts. The target variable is classe.
+
+## Data Load
+
+```{r data-load}
+train_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+train_raw <- read.csv(train_url, na.strings = c("NA","#DIV/0!",""))
+test_raw  <- read.csv(test_url,  na.strings = c("NA","#DIV/0!",""))
+
+dim(train_raw)  
+dim(test_raw)   
+table(train_raw$classe)  
+```
+## Data Cleaning
+
+```{r cleaning}
+
+na_pct <- sapply(train_raw, function(x) mean(is.na(x)))
+keep_cols <- names(na_pct[na_pct <= 0.6])
+
+train2 <- train_raw[, keep_cols]
+test2  <- test_raw[, names(test_raw) %in% keep_cols]
+
+meta_cols <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2",
+               "cvtd_timestamp","new_window","num_window")
+meta_cols <- meta_cols[meta_cols %in% names(train2)]
+train2 <- dplyr::select(train2, -dplyr::one_of(meta_cols))
+test2  <- dplyr::select(test2, -dplyr::one_of(meta_cols))
+
+nzv <- caret::nearZeroVar(train2, saveMetrics = TRUE)
+nzv_cols <- rownames(nzv)[nzv$nzv]
+train2 <- dplyr::select(train2, -dplyr::one_of(nzv_cols))
+test2  <- dplyr::select(test2, -dplyr::one_of(nzv_cols))
+
+train2$classe <- as.factor(train2$classe)
+
+dim(train2)
+dim(test2)
+```
+## Train / Validation Split
+
+```{r split}
+set.seed(1234)  
+
+inTrain <- caret::createDataPartition(train2$classe, p = 0.7, list = FALSE)
+training <- train2[inTrain, ]
+validation <- train2[-inTrain, ]
+
+dim(training)
+dim(validation)
+```
+
+## Model Training (Random Forest)
+
+```{r train}
+set.seed(1234)
+
+ctrl <- caret::trainControl(method = "cv", number = 3)
+
+rfFit <- caret::train(classe ~ ., data = training, method = "rf",
+                      trControl = ctrl, ntree = 100)  
+
+rfFit
+```
+
+## Validation Results
+
+```{r validate}
+
+pred_val <- predict(rfFit, newdata = validation)
+
+conf_mat <- caret::confusionMatrix(pred_val, validation$classe)
+conf_mat
+```
+## Variable Importance
+
+```{r varimp}
+
+v <- caret::varImp(rfFit)
+
+print(v)
+
+plot(v, top = 20)
+```
+## Final Predictions for Submission
+
+```{r final-pred}
+
+final_test_pred <- predict(rfFit, newdata = test2)
+
+final_test_pred
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    fname = paste0("problem_id_", i, ".txt")
+    write.table(x[i], file = fname, quote = FALSE, row.names = FALSE, col.names = FALSE)
+  }
+}
+
+```
